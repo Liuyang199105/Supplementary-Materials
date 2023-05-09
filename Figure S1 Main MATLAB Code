@@ -1,0 +1,666 @@
+clc
+close all
+clear all
+%% Exact basin
+tic
+% load('LiDAR_block.shp');
+ 
+j = imread('DEMz1.tif');
+load('FA.mat');
+FA = FlowAccumulation;
+ 
+FlowAccumulation = FlowAccumulation.^(1/2);
+H0 = imread('DEMz1.tif');
+H0 = double(H0);
+[r3, c3] = size(H0);
+H0 = reshape(H0,[],1);
+H0(H0<0) = 0;
+H0 = reshape(H0,r3,c3);
+ExcelName = 'Final Results sum Lvbo.xlsx'; % Save data as the Excel file
+K = ones(1)./1;
+Limit = 2;
+ 
+levelNo = 15; % the number of basin area choice for research (max = 15)
+% which accords to the number you selected in GIS
+% 
+ 
+submax = 5; % the number of sub-basin area choice for research in the each
+% above basin area (Recommendation 5)
+% 
+ 
+iterationmax = 10; % the number of surface runoff area choice
+% in each basin area (tried)
+% 
+ 
+ 
+ 
+ 
+LineNo = 10; % the number of surface runoff line choice
+% in each surface runoff area (tried)
+% 
+ 
+% total largest number of Figures would be levelNo * iterationmax * LineNo
+% 
+ 
+Posi = [208,117,1220,737];
+ 
+Zsmooth1 = conv2(FlowAccumulation,K,'same'); % Convolution
+% Nothing changes if K = 1;
+FlowAccumulation = Zsmooth1;
+% FlowAccumulation = Zsmooth1.^(1/2);
+FlowAccFig = FlowAccumulation ;
+H3 = imread('Penyu.tif');
+H3 = double(H3);
+ 
+[r3, c3] = size(H3);
+H3 = reshape(H3,[],1);
+H3(H3<0) = 0;
+% H1(H1>0) = 1;
+H3 = reshape(H3,r3,c3);
+ 
+ 
+ 
+Htpi = imread('myTPI.tif');
+Htpi = double(Htpi);
+ 
+[r3, c3] = size(Htpi);
+r = r3;
+c = c3;
+Htpi = reshape(Htpi,[],1);
+Htpi(Htpi<0) = 0;
+Htpi = reshape(Htpi,r3,c3);
+ 
+AreaMax = 2000;
+ 
+%% Colormap set
+cm = colormap('hot');
+cm = flipud(cm);
+colorhot = colormap('hot');
+colorhot = rot90(colorhot,2);
+%% Initial
+maxi = max(H3,[],'all');
+ 
+level = [1 57 113 174 229 273 327 394 453 506 556 608 661 729 795 842];
+% According to the number given by GIS
+ 
+for i = 1:length(level)-1
+    H3(H3>level(i) & H3<=level(i+1)) = i;
+end
+H30 = H3;
+t = 0;
+FlowAccsub = zeros(r,c,70);
+DEMsub = zeros(r,c,70);
+TPIsub = zeros(r,c,70);
+%% Preparation of Exact basin
+for i = 1:levelNo
+    
+    if i < 15
+        modification = 30;
+    else
+        modification = 1;
+    end
+    b = max(H3,[],'all');
+    if b == 0
+        break
+    end
+    [rb0, cb0] = find(H3 == i);
+    %     [rb, cb] = find(H3 == i);
+    FlowAccBasinArea = zeros(r3,c3);
+    FlowAccsubtraction = zeros(r3,c3);
+    for j = 1:length(rb0)
+        FlowAccBasinArea(rb0(j),cb0(j)) = FlowAccumulation(rb0(j),cb0(j));
+        FlowAccsubtraction(rb0(j),cb0(j)) = H3(rb0(j),cb0(j));
+    end
+    
+    %% Basin Sub Area
+    sub = 0;
+    while size(rb0,1) > 10 && sub < 5
+        Lengthsave0 = zeros(1,iterationmax*LineNo);
+        sub = sub + 1;
+        row = rb0(1);
+        column = cb0(1);
+        No = 2000;
+        SubAreaId = zeros(No,2);
+        %     TPIID = zeros(No,2);
+        for n = 1:No
+            
+            if n == 1
+                x = [row, column];
+                y = FindContour(x,r,c);
+                SubArea = zeros(length(y),2);
+            else
+                x = SubAreaId;
+                y = FindContour(x,r,c);
+                SubArea = zeros(length(y),2);
+                old = SubAreaId;
+            end
+            k = 0;
+            for m = 1:length(y)
+                judge = H30(y(m,1),y(m,2));
+                
+                if judge == i
+                    k = k + 1;
+                    SubArea(k,:) =  y(m,:);
+                end
+            end
+            SubArea(SubArea==0) = [];
+            SubArea = reshape(SubArea,[],2);
+            
+            if size(SubArea,1) > 0 || n == 1
+                
+                if n == 1
+                    SubAreaId = [x;SubArea];
+                else
+                    SubAreaId = [SubAreaId;SubArea];
+                    SubAreaId = unique(SubAreaId,'rows');
+                end
+                
+            else
+                break
+            end
+        end
+        
+        
+        
+        
+        %% Runoff Area
+        IDmin = min(SubAreaId,[],1);
+        IDmax = max(SubAreaId,[],1);
+        ID(sub,:) = [IDmin IDmax];
+        ExtractSub = zeros(r,c);
+        Hsub = zeros(r,c);
+        DEMsubeach = zeros(r,c); % to save each value of DEM
+        TPIsubeach = zeros(r,c); % to save each value of TPI
+        for l = 1:size(SubArea,1)
+            ExtractSub(SubArea(l,1),SubArea(l,2)) = ...
+                FlowAccBasinArea(SubArea(l,1),SubArea(l,2));
+            Hsub(SubArea(l,1),SubArea(l,2)) = ...
+                H3(SubArea(l,1),SubArea(l,2));
+            DEMsubeach(SubArea(l,1),SubArea(l,2)) = ...
+                H0(SubArea(l,1),SubArea(l,2));
+            TPIsubeach(SubArea(l,1),SubArea(l,2)) = ...
+                Htpi(SubArea(l,1),SubArea(l,2));
+            
+        end
+        [rb, cb] = find(Hsub == i);
+        if size(rb,1) < 100  % Discard the area less than 100 girds
+            rb0(1) = [];
+            cb0(1) = [];
+            sub = sub -1;
+            continue
+        end
+        %% Save Flow Accumulation, TPI and DEM
+        FlowAccsave0 = sum(ExtractSub.^2,'all');
+        t = t + 1;
+        FlowAccsub(:,:,t) = ExtractSub;
+        DEMsub(:,:,t) = DEMsubeach;
+        TPIsub(:,:,t) = TPIsubeach;
+        
+        Hplot = Hsub;
+        Hplot(Hplot>0) = modification;
+        Hplot = reshape(Hplot,r3,c3);
+        figure1 = figure(2);
+        colormap(spring);
+        axes1 = axes('Parent',figure1);
+        hold(axes1,'on');
+        hold on
+        ss1 = surf(axes1,H30,'Parent',axes1,'EdgeColor','none','FaceAlpha',0);
+        ss2 = surf(axes1,Hplot,'Parent',axes1,'EdgeColor','none');
+        hold off
+        
+        xlim(axes1,[min(cb)-2 max(cb)+2]);
+        ylim(axes1,[min(rb)-2 max(rb)+2]);
+        
+        grid(axes1,'on');
+        hold(axes1,'off');
+        % Set the remaining coordinate area properties
+        set(axes1,'Color','none','Colormap',cm,'DataAspectRatio',[1,1,0.5]);
+        view(axes1,[0 -90]);
+        cb1 = colorbar(axes1,'Position',...
+            [0.077 0.146862483311081 0.0229612109744559 0.671537516688922]);
+        cb1.Label.String = 'Level';
+        cb1.Label.FontSize = 12;
+        % Create axes
+        axes2 = axes('Parent',figure1);
+        hold(axes2,'on');
+        % Create surf
+        hold on
+        ss1 = surf(axes2,FlowAccumulation,'Parent',axes2,'EdgeColor','none','FaceAlpha',0);
+        ss2 = surf(axes2,ExtractSub,'Parent',axes2,'EdgeColor','none','FaceAlpha',0.8);
+        cb2 = colorbar(axes2,'Position',...
+            [0.93355737704918,0.146862483311081,0.022961210974456,0.671537516688921]);
+        cb2.Label.String = 'SQRT of Flow Accumulation';
+        cb2.Label.FontSize = 12;
+        hold off
+        xlim(axes2,[min(cb)-2 max(cb)+2]);
+        ylim(axes2,[min(rb)-2 max(rb)+2]);
+        %         zlim(axes2,[0 40]);
+        grid(axes2,'on');
+        hold(axes2,'off');
+        set(axes2,'Color','none','Colormap',colorhot,...
+            'DataAspectRatio',[1,1,0.5]); %,'XTick',[],'YTick',[]
+        view(axes2,[0 -90]);
+        set(figure1,'Position',Posi);
+        print(['An example',num2str(i),'(',num2str(sub),')'],'-djpeg','-r600')
+        close all
+        FlowAccBasinArea = FlowAccBasinArea - ExtractSub;
+        H30 = H30 - Hsub;
+        
+        
+        Boundary = boundary(SubArea(:,1),SubArea(:,2),1);
+        polyin = polyshape([SubArea(Boundary,1)';SubArea(Boundary,2)']');
+        %         plot(polyin)
+        %         view([90 90]);
+        Boundarycircumference = perimeter(polyin);
+        Boundarycircumference = Boundarycircumference.*2;
+        FindMaxLength = pdist2(SubArea(Boundary,:),SubArea(Boundary,:),'euclidean');
+        MaxLength = max(FindMaxLength,[],'all');
+        
+        [xL, ~] = find(FindMaxLength == MaxLength);
+        MaxLength = MaxLength.*2;
+        if size(xL,1) == 0
+            continue
+        end
+        
+        
+        
+        % Create figure
+        close all
+        figure1 = figure;
+        
+        % Create axes
+        axes1 = axes('Parent',figure1);
+        
+        
+        % Create plot
+        plot(SubArea(:,1),SubArea(:,2),'Marker','.','LineStyle','none');
+        hold on
+        plot(SubArea(Boundary,1),SubArea(Boundary,2),'-m','LineWidth',1.8);
+        plot([SubArea(Boundary(xL(1)),1) SubArea(Boundary(xL(2)),1)],...
+            [SubArea(Boundary(xL(1)),2) SubArea(Boundary(xL(2)),2)],'r-s',...
+            'LineWidth',4.5,'MarkerFaceColor','r','MarkerSize',8)
+        view(axes1,[90 90]);
+        box(axes1,'on');
+        
+        % Set the remaining axes properties
+        set(axes1,'DataAspectRatio',[1 1 1],'PlotBoxAspectRatio',...
+            [76.0736196319018 60 1]);
+        set(figure1,'Position',[680,58,947,920]);
+        
+        title({[num2str(i),'(',num2str(sub),') Boundary Circumference = ',num2str(Boundarycircumference),' m'];...
+            ['Max Length of Basin = ',num2str(MaxLength),' m']})
+        print(['An example',num2str(t),' Boundary'],'-djpeg','-r600')
+        close all
+        
+        %% Save value
+        if i == 1 && sub == 1
+            S = size(SubArea,1)*2^2;
+            Name = num2str(t);
+            Name = convertCharsToStrings(Name);
+            Boundarycircumferencesave = Boundarycircumference;
+            MaxLengthsave = MaxLength;
+            FlowAccsave = FlowAccsave0;
+        else
+            S = [S;size(SubArea,1)*2^2];
+            Name = [Name;convertCharsToStrings(num2str(t))];
+            Boundarycircumferencesave = [Boundarycircumferencesave;Boundarycircumference];
+            MaxLengthsave = [MaxLengthsave;MaxLength];
+            FlowAccsave = [FlowAccsave;FlowAccsave0];
+        end
+        
+        %% Extract Runoff Area
+        for iteration = 1:iterationmax
+            if sum(ExtractSub,'all') < 200 % Discard the area with Flow
+                % Accumulation less than 200
+                break
+            end
+            max1 = max(ExtractSub,[],'all');
+            [row, column] = find(ExtractSub == max1);
+            No = 500;
+            RunoffAreaId = zeros(No,2);
+            for n = 1:No
+                if n == 1
+                    x = [row, column];
+                    y = FindContour(x,r,c);
+                    RunoffArea = zeros(length(y),2);
+                else
+                    x = RunoffAreaId;
+                    y = FindContour(x,r,c);
+                    RunoffArea = zeros(length(y),2);
+                    
+                end
+                k = 0;
+                for m = 1:length(y)
+                    judge = ExtractSub(y(m,1),y(m,2));
+                    
+                    if judge > Limit
+                        k = k + 1;
+                        RunoffArea(k,:) =  y(m,:);
+                    end
+                end
+                RunoffArea(RunoffArea==0) = [];
+                RunoffArea = reshape(RunoffArea,[],2);
+                if n == 1
+                    RunoffAreaId = [x;RunoffArea];
+                else
+                    RunoffAreaId = [RunoffAreaId;RunoffArea];
+                    RunoffAreaId = unique(RunoffAreaId,'rows');
+                end
+            end
+            %% Runoff Area
+            IDmin = min(RunoffAreaId,[],1);
+            IDmax = max(RunoffAreaId,[],1);
+            ID(iteration,:) = [IDmin IDmax];
+            Extract = zeros(r,c);
+            
+            for l = 1:length(RunoffArea)
+                Extract(RunoffArea(l,1),RunoffArea(l,2)) = ...
+                    ExtractSub(RunoffArea(l,1),RunoffArea(l,2));
+            end
+            
+            if sum(Extract,'all') < 10
+                break
+            end
+            
+            figure1 = figure(2);
+            colormap(spring);
+            axes1 = axes('Parent',figure1);
+            hold(axes1,'on');
+            hold on
+            ss1 = surf(axes1,H30,'Parent',axes1,'EdgeColor','none','FaceAlpha',0);
+            ss2 = surf(axes1,Hplot,'Parent',axes1,'EdgeColor','none');
+            hold off
+            xlim(axes1,[min(cb)-2 max(cb)+2]);
+            ylim(axes1,[min(rb)-2 max(rb)+2]);
+            %         zlim(axes1,[0.5 5000]);
+            grid(axes1,'on');
+            hold(axes1,'off');
+            % Set the remaining coordinate area properties
+            set(axes1,'Color','none','Colormap',cm,'DataAspectRatio',[1,1,0.5]);
+            view(axes1,[0 -90]);
+            cb1 = colorbar(axes1,'Position',...
+                [0.077 0.146862483311081 0.0229612109744559 0.671537516688922]);
+            cb1.Label.String = 'Level';
+            cb1.Label.FontSize = 12;
+            % Create axes
+            axes2 = axes('Parent',figure1);
+            hold(axes2,'on');
+            % Create surf
+            hold on
+            ss1 = surf(axes2,FlowAccumulation,'Parent',axes2,'EdgeColor','none','FaceAlpha',0);
+            ss2 = surf(axes2,Extract,'Parent',axes2,'EdgeColor','none','FaceAlpha',0.8);
+            cb2 = colorbar(axes2,'Position',...
+                [0.93355737704918,0.146862483311081,0.022961210974456,0.671537516688921]);
+            cb2.Label.String = 'SQRT of Flow Accumulation';
+            cb2.Label.FontSize = 12;
+            hold off
+            xlim(axes2,[min(cb)-2 max(cb)+2]);
+            ylim(axes2,[min(rb)-2 max(rb)+2]);
+            zlim(axes2,[0 40]);
+            grid(axes2,'on');
+            hold(axes2,'off');
+            set(axes2,'Color','none','Colormap',colorhot,...
+                'DataAspectRatio',[1,1,0.5],'XTick',[],'YTick',[]);
+            view(axes2,[0 -90]);
+            set(figure1,'Position',Posi);
+            print(['An example',num2str(t),'-',num2str(iteration)],'-djpeg','-r600')
+            close all
+            ExtractSub = ExtractSub - Extract;
+            
+            %% Surface Line
+            for j = 1:LineNo
+                if sum(Extract,'all') < 10
+                    break
+                end
+                max1 = max(Extract,[],'all');
+                [row, column] = find(Extract == max1);
+                Extract(row,column) = 0;
+                No = 1200;
+                RunoffId = zeros(No,2); % indice of surface runoff
+                RunoffId(1,:) = [row, column];
+                for m = 2:No
+                    if row-1 == 0 || row+1 == r || column-1 == 0 || column+1 == 0
+                        break
+                    else
+                        ninegrids = Extract(row-1:row+1,column-1:column+1);
+                    end
+                    ninegrids(2,2) = 0;
+                    if m > 2
+                        rowlast = RunoffId(m-2,1);
+                        columnlast = RunoffId(m-2,2);
+                        rowrecent = RunoffId(m-1,1);
+                        columnrecent = RunoffId(m-1,2);
+                        
+                        deltax = rowrecent - rowlast;
+                        deltay = columnrecent - columnlast;
+                        
+                        if deltax == -1 && deltay == 0 % ±± North
+                            ninegrids(3,:) = 0;
+                        elseif deltax == -1 && deltay == 1
+                            ninegrids(2,1) = 0;
+                            ninegrids(3,1) = 0;
+                            ninegrids(3,2) = 0;
+                        elseif deltax == 0 && deltay == 1 % ¶« East
+                            ninegrids(:,1) = 0;
+                        elseif deltax == 1 && deltay == 1
+                            ninegrids(1,1) = 0;
+                            ninegrids(1,2) = 0;
+                            ninegrids(2,1) = 0;
+                        elseif deltax == 1 && deltay == 0 % ÄÏ South
+                            ninegrids(1,:) = 0;
+                        elseif deltax == 1 && deltay == -1
+                            ninegrids(1,2) = 0;
+                            ninegrids(1,3) = 0;
+                            ninegrids(2,3) = 0;
+                        elseif deltax == 0 && deltay == -1 % Î÷ West
+                            ninegrids(:,3) = 0;
+                        elseif deltax == -1 && deltay == -1
+                            ninegrids(3,2) = 0;
+                            ninegrids(3,3) = 0;
+                            ninegrids(2,3) = 0;
+                        end
+                    end
+                    M = max(ninegrids,[],'all');
+                    if M < 1
+                        break
+                    end
+                    [row, column] = find(Extract == M);
+                    Extract(row,column) = 0;
+                    RunoffId(m,:) = [row column];
+                end
+                RunoffId(RunoffId == 0) = [];
+                RunoffId = reshape(RunoffId,[],2);
+                
+                %% The length of runoff line
+                LineLength = 0;
+                for m = 2:size(RunoffId,1)
+                    p1 = RunoffId(m-1,:);
+                    p2 = RunoffId(m,:);
+                    LineLength = LineLength + distanceHHS(p1,p2);
+                end
+                Lengthsave0(1,LineNo*(iteration - 1)+j) = LineLength;
+                
+                
+                
+                %% Runoff Area
+                ExtractLine = zeros(r,c);
+                for k = 1:size(RunoffId,1)
+                    ExtractLine(RunoffId(k,1),RunoffId(k,2)) = ...
+                        FlowAccFig(RunoffId(k,1),RunoffId(k,2));
+                end
+                
+                figure1 = figure(2);
+                colormap(spring);
+                axes1 = axes('Parent',figure1);
+                hold(axes1,'on');
+                hold on
+                ss1 = surf(axes1,H30,'Parent',axes1,'EdgeColor','none','FaceAlpha',0);
+                ss2 = surf(axes1,Hplot,'Parent',axes1,'EdgeColor','none');
+                hold off
+                xlim(axes1,[min(cb)-2 max(cb)+2]);
+                ylim(axes1,[min(rb)-2 max(rb)+2]);
+                zlim(axes1,[0.5 5000]);
+                grid(axes1,'on');
+                hold(axes1,'off');
+                % Set the remaining coordinate area properties
+                set(axes1,'Color','none','Colormap',cm,'DataAspectRatio',[1,1,0.5]);
+                view(axes1,[0 -90]);
+                % Create colorbar
+                cb1 = colorbar(axes1,'Position',...
+                    [0.077 0.146862483311081 0.0229612109744559 0.671537516688922]);
+                cb1.Label.String = 'Level';
+                cb1.Label.FontSize = 12;
+                % Create axes
+                axes2 = axes('Parent',figure1);
+                hold(axes2,'on');
+                % Create surf
+                hold on
+                ss1 = surf(axes2,FlowAccumulation,'Parent',axes2,'EdgeColor','none','FaceAlpha',0);
+                ss2 = surf(axes2,ExtractLine,'Parent',axes2,'EdgeColor','none','FaceAlpha',0.8);
+                cb2 = colorbar(axes2,'Position',...
+                    [0.93355737704918,0.146862483311081,0.022961210974456,0.671537516688921]);
+                cb2.Label.String = 'SQRT of Flow Accumulation';
+                cb2.Label.FontSize = 12;
+                hold off
+                title(['Length = ',num2str(LineLength),' m'])
+                xlim(axes2,[min(cb)-2 max(cb)+2]);
+                ylim(axes2,[min(rb)-2 max(rb)+2]);
+                zlim(axes2,[0 40]);
+                grid(axes2,'on');
+                hold(axes2,'off');
+                set(axes2,'Color','none','Colormap',colorhot,...
+                    'DataAspectRatio',[1,1,0.5],'XTick',[],'YTick',[]);
+                view(axes2,[0 -90]);
+                set(figure1,'Position',Posi);
+                print(['An example',num2str(t),'-',num2str(iteration),'-',num2str(j)],'-djpeg','-r600')
+                close all
+                Extract = Extract - ExtractLine;
+                
+                
+                
+            end
+            
+            
+        end
+        %% Save value of Length
+        Lengthsave0 = sort(Lengthsave0,'descend');
+        if i == 1 && sub == 1
+            Lengthsave = Lengthsave0;
+        else
+            Lengthsave = [Lengthsave;Lengthsave0];
+        end
+        
+        
+    end
+end
+VariableName = ["ID","Flow Accumulation","S","Boundary circumferencesave","MaxLengthsave","Each Length of surface runoff"];
+MatrixSave = [FlowAccsave';S';Boundarycircumferencesave';MaxLengthsave';Lengthsave']';
+writematrix(VariableName,ExcelName,'Sheet',1,'Range','B1');
+writematrix(Name,ExcelName,'Sheet',1,'Range','B2');
+writematrix(MatrixSave,ExcelName,'Sheet',1,'Range','C2');
+save('FlowAccsub.mat','FlowAccsub');
+save('DEMsub.mat','DEMsub');
+save('TPIsub.mat','TPIsub');
+toc
+ 
+ 
+function y = FindContour(x,r,c)
+% Note:
+% The function is used to find the coordinate index of Contour point (?)
+% surrounding the given inner points (*).
+%    ? ? ?
+%    ? * ?
+%  ? ? * ? ?
+%  ? * * * ?
+%  ? ? ? ? ?
+% USAGES
+% y = FindContour(x)
+%
+% INPUT:
+% x: The coordinate index of inner points
+% r: The maximum range of row value
+% c: The maximum range of column value
+% OUTPUT:
+% y: The coordinate index of Contour point surrounding the inner points
+%% read original data and find size
+[rold, ~] = size(x);
+ 
+%% creat a full matrix to save result data
+Full = zeros(rold*8,2);
+ 
+%% creat a direction matrix
+direction = [...
+    -1  0;...due north
+    -1 +1;...northeast
+    0 +1;...due east
+    +1 +1;...southeast
+    +1  0;...due south
+    +1 -1;...southwest
+    0 -1;...due west
+    -1 -1];% northwest
+for i = 1:rold
+    Full(1+(i-1)*8:i*8,:) = x(i,:) + direction;
+end
+ 
+y = unique(Full,'rows');
+ 
+[rtest,~] = find(y(:,1) == 0 | y(:,1) == r+1 | y(:,2) == 0 | y(:,2) == c+1);
+y(rtest,:) = [];
+ 
+ 
+end
+ 
+function d = distanceHHS(p1,p2)
+ 
+d = ((p1(1,1) - p2(1,1)).^2 + (p1(1,2) - p2(1,2)).^2).^(1/2);
+end
+ 
+%
+% function L = maxLength(p)
+% % Note: Find the maximum length of a series of given points
+% %
+% % USAGES
+% % L = maxLength(p)
+% %
+% % INPUT:
+% % p: Inputting a series of given points
+% % OUTPUT:
+% % y: Find the maximum length of a series of given points
+% for i = size(p,1)
+%
+%
+%
+%
+% end
+ 
+ 
+ 
+% function F = PointSort(p)
+% % Note: Sorting the vertex of a polygon clockwise
+%
+% % USAGES
+% % F = PointSort(p)
+% %
+% % INPUT:
+% % p: Inputting the vertex of a polygon
+% % OUTPUT:
+% % y: Sorting the vertex of a polygon as clockwise
+% centerx = mean(p(:,1));
+% centery = mean(p(:,2));
+% p(:,1) = p(:,1) - centerx;
+% p(:,2) = p(:,2) - centery;
+% p = [p;p(1,:)]; %
+% for i = 1:size(p,1)-1
+%     for j = 1:size(p,1)-i
+%         crossproduct = det([p(j,1) p(j,2);p(j+1,1) p(j+1,2)]);
+%         if crossproduct < 0
+%             p([j,j+1],:) = p([j+1,j],:);
+%         end
+%     end
+% end
+% p = unique(p,'rows','stable');
+% F = p;
+%
+%
+% end
+%
